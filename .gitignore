@@ -1,0 +1,48 @@
+# Build artifacts
+**/bin/
+**/obj/
+*.dll
+*.exe
+*.pdb
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Test data and generated files
+uploads/
+models/
+images/
+*.zip
+*.ply
+*.obj
+*.bin
+*.txt.user
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Database files
+*.db
+*.sqlite
+
+# Environment specific
+appsettings.Development.json
+launchSettings.json

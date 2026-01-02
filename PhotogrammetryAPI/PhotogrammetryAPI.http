@@ -1,0 +1,6 @@
+@PhotogrammetryAPI_HostAddress = http://localhost:5273
+
+GET {{PhotogrammetryAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
