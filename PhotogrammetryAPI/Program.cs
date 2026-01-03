@@ -49,8 +49,11 @@ builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 builder.Services.AddSingleton<IQueueService, RabbitMQService>();
 
-// Add Background Worker
-builder.Services.AddHostedService<PhotogrammetryWorker>();
+// Add Background Services
+builder.Services.AddHostedService<StatusConsumerService>();
+
+// Note: PhotogrammetryWorker is now a separate application
+// Run it on GPU-enabled machines: dotnet run --project PhotogrammetryWorker
 
 // Add Controllers
 builder.Services.AddControllers();

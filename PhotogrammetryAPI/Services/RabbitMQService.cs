@@ -29,12 +29,34 @@ public class RabbitMQService : IQueueService, IDisposable
         _connection = factory.CreateConnection();
         _channel = _connection.CreateModel();
         
+        // Setup Dead Letter Exchange
+        var deadLetterExchange = "photogrammetry-dlx";
+        var deadLetterQueue = "photogrammetry-failed";
+        
+        _channel.ExchangeDeclare(deadLetterExchange, "direct", durable: true);
+        _channel.QueueDeclare(
+            queue: deadLetterQueue,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null
+        );
+        _channel.QueueBind(deadLetterQueue, deadLetterExchange, "failed");
+        
+        // Main queue with dead letter configuration
+        var args = new Dictionary<string, object>
+        {
+            { "x-consumer-timeout", 86400000 }, // 24 hours
+            { "x-dead-letter-exchange", deadLetterExchange },
+            { "x-dead-letter-routing-key", "failed" }
+        };
+        
         _channel.QueueDeclare(
             queue: _queueName,
             durable: true,
             exclusive: false,
             autoDelete: false,
-            arguments: null
+            arguments: args
         );
     }
     

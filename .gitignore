@@ -14,6 +14,7 @@
 # Test data and generated files
 uploads/
 models/
+Projects/
 images/
 *.zip
 *.ply
@@ -46,3 +47,10 @@ temp/
 # Environment specific
 appsettings.Development.json
 launchSettings.json
+
+#vs Code workspace files
+.history/
+
+# Note: Test ZIPs are excluded. Create them with:
+# cd PhotogrammetryAPI && ./create_test_zips.sh
+# See PhotogrammetryAPI/PREPARE_TEST_DATA.md for details

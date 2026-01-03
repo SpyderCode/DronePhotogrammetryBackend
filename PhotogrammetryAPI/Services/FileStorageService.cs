@@ -8,22 +8,18 @@ public interface IFileStorageService
 
 public class FileStorageService : IFileStorageService
 {
-    private readonly string _uploadPath;
-    private readonly string _modelsPath;
+    private readonly string _projectsPath;
     
     public FileStorageService(IConfiguration configuration)
     {
-        _uploadPath = configuration["Storage:UploadsPath"] ?? "uploads";
-        _modelsPath = configuration["Storage:ModelsPath"] ?? "models";
-        
-        Directory.CreateDirectory(_uploadPath);
-        Directory.CreateDirectory(_modelsPath);
+        _projectsPath = configuration["Storage:ProjectsPath"] ?? "Projects";
+        Directory.CreateDirectory(_projectsPath);
     }
     
     public async Task<string> SaveZipFileAsync(IFormFile file, int userId)
     {
         var folderName = $"{userId}_{Guid.NewGuid()}";
-        var folderPath = Path.Combine(_uploadPath, folderName);
+        var folderPath = Path.Combine(_projectsPath, folderName);
         Directory.CreateDirectory(folderPath);
         
         var fileName = $"{Path.GetFileNameWithoutExtension(file.FileName)}_{DateTime.UtcNow.Ticks}.zip";
@@ -39,7 +35,7 @@ public class FileStorageService : IFileStorageService
     
     public Task<string> GetModelFilePathAsync(int projectId)
     {
-        var modelPath = Path.Combine(_modelsPath, $"project_{projectId}");
+        var modelPath = Path.Combine(_projectsPath, $"project_{projectId}");
         return Task.FromResult(modelPath);
     }
 }

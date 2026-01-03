@@ -1,27 +1,27 @@
-# 🏢 Drone Photogrammetry Backend API
+# 🏢 Drone Photogrammetry Backend
 
-A production-ready C# ASP.NET Core backend for processing drone/indoor photogrammetry images into high-quality 3D models using COLMAP.
+A distributed C# ASP.NET Core system for processing drone/indoor photogrammetry images into high-quality 3D models using COLMAP.
 
 ## ✨ Features
 
 - 🔐 **JWT Authentication** - Secure user authentication with BCrypt
 - 📤 **Large File Support** - Upload up to 50GB of images
 - 🎨 **COLMAP Integration** - State-of-the-art 3D reconstruction
-- 🚀 **GPU Accelerated** - CUDA support for fast processing
-- 📊 **Queue-Based Processing** - RabbitMQ for distributed workflows
+- 🚀 **GPU Accelerated** - CUDA support for fast processing on worker nodes
+- 📊 **Distributed Processing** - RabbitMQ queue with multiple GPU workers
 - 💾 **MySQL Database** - Robust data persistence
 - 📡 **RESTful API** - Clean, documented endpoints
-- 🔄 **Real-time Status** - Track processing progress
+- 🔄 **Real-time Status** - Track processing progress with status updates
+- 🖥️ **Scalable Architecture** - Separate API and Worker components
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - .NET 8.0 SDK
-- MySQL 8.0 (or Docker)
-- RabbitMQ 3.x
-- COLMAP 3.14+
-- NVIDIA GPU with CUDA (recommended)
+- Docker & Docker Compose (for MySQL and RabbitMQ)
+- COLMAP 3.14+ (for workers only)
+- NVIDIA GPU with CUDA (for workers only)
 
 ### Installation
 
@@ -33,39 +33,65 @@ cd DronePhotogrammetryBackend
 # Start services (Docker)
 docker compose up -d
 
-# Configure and run
+# Configure API
 cd PhotogrammetryAPI
 cp appsettings.json appsettings.Development.json
-# Edit connection strings as needed
+# Edit connection strings if needed
+
+# Run API
 dotnet run
 ```
 
 API will be available at: http://localhost:5273
 
-### Quick Test
+### Running a Worker Node
+
+On a machine with GPU and COLMAP installed:
 
 ```bash
-cd PhotogrammetryAPI
-./quick_test.sh
+cd PhotogrammetryWorker
+cp appsettings.json appsettings.Development.json
+# Configure RabbitMQ host and shared storage path
+dotnet run
 ```
 
-For detailed setup, see [QUICKSTART.md](PhotogrammetryAPI/QUICKSTART.md)
+See [PhotogrammetryWorker/README.md](PhotogrammetryWorker/README.md) for details.
 
 ## 📖 Documentation
 
-- **[QUICKSTART.md](PhotogrammetryAPI/QUICKSTART.md)** - 5-minute setup guide
+### Getting Started
+- **[PhotogrammetryAPI/QUICKSTART.md](PhotogrammetryAPI/QUICKSTART.md)** - API setup guide
+- **[PhotogrammetryWorker/README.md](PhotogrammetryWorker/README.md)** - Worker setup guide
+
+### Configuration
+- **[PREPARE_TEST_DATA.md](PhotogrammetryAPI/PREPARE_TEST_DATA.md)** - Creating test datasets
+- **[LARGE_FILE_UPLOAD.md](PhotogrammetryAPI/LARGE_FILE_UPLOAD.md)** - Handle large datasets (50GB+)
+- **[CONFIGURE_RABBITMQ.md](PhotogrammetryAPI/CONFIGURE_RABBITMQ.md)** - RabbitMQ timeout settings
+
+### Architecture
+- **[SHARED_STORAGE.md](SHARED_STORAGE.md)** - Shared storage configuration
+- **[STATUS_UPDATES.md](STATUS_UPDATES.md)** - Status update messaging system
+- **[FAULT_TOLERANCE.md](FAULT_TOLERANCE.md)** - Error handling and recovery
+
+### Testing
 - **[TESTING.md](PhotogrammetryAPI/TESTING.md)** - Complete testing guide
-- **[CONFIGURE_RABBITMQ.md](PhotogrammetryAPI/CONFIGURE_RABBITMQ.md)** - RabbitMQ setup for long tasks
-- **[LARGE_FILE_UPLOAD.md](PhotogrammetryAPI/LARGE_FILE_UPLOAD.md)** - Handle large datasets
 - **[CHANGELOG.md](PhotogrammetryAPI/CHANGELOG.md)** - Recent updates
 
 ## ��️ Architecture
 
+The system is split into two components for optimal GPU resource utilization:
+
 ```
-User → API Upload → File Storage → RabbitMQ Queue → Worker → COLMAP → 3D Model
-                                                        ↓
-                                                   MySQL Database
+User → API Server (Upload) → Shared Storage → RabbitMQ Queue → Worker Node (GPU) → COLMAP → 3D Model
+         ↓                                          ↓                    ↓
+    MySQL Database                          Status Updates         Shared Storage
 ```
+
+**Components:**
+- **API Server** (`PhotogrammetryAPI/`): Handles uploads, authentication, and status queries (no GPU needed)
+- **Worker Nodes** (`PhotogrammetryWorker/`): Process photogrammetry with COLMAP (requires GPU)
+- **Shared Storage**: Common filesystem for projects (`Projects/` folder)
+- **RabbitMQ**: Distributes work and handles status updates between API and workers
 
 ### Technology Stack
 
@@ -73,7 +99,7 @@ User → API Upload → File Storage → RabbitMQ Queue → Worker → COLMAP �
 |-----------|-----------|
 | Framework | ASP.NET Core 8.0 / C# 12 |
 | Database | MySQL 8.0 with Entity Framework Core |
-| Queue | RabbitMQ 3.x |
+| Queue | RabbitMQ 3.x with bidirectional status updates |
 | Photogrammetry | COLMAP 3.14+ with CUDA |
 | Authentication | JWT with BCrypt |
 | API Documentation | Swagger/OpenAPI |
@@ -205,17 +231,20 @@ services:
 
 ### Quick Test (10 images, ~10 minutes)
 ```bash
-./PhotogrammetryAPI/quick_test.sh
+cd PhotogrammetryAPI
+./quick_test.sh
 ```
 
-### Full Test (128 images, ~2-4 hours)
+### Full Test (128 images, ~2-4 hours with GPU)
 ```bash
-./PhotogrammetryAPI/test_full_dataset.sh
+cd PhotogrammetryAPI
+./test_full_dataset.sh
 ```
 
 ### Monitor Running Project
 ```bash
-./PhotogrammetryAPI/monitor_project.sh PROJECT_ID TOKEN
+cd PhotogrammetryAPI
+./monitor_project.sh PROJECT_ID TOKEN
 ```
 
 See [TESTING.md](PhotogrammetryAPI/TESTING.md) for details.

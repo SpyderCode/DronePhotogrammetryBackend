@@ -1,6 +1,7 @@
 using PhotogrammetryAPI.Data;
 using PhotogrammetryAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using System.IO.Compression;
 
 namespace PhotogrammetryAPI.Services;
 
@@ -35,6 +36,16 @@ public class ProjectService : IProjectService
         
         _context.Projects.Add(project);
         await _context.SaveChangesAsync();
+        
+        // Extract images to project folder
+        var projectsPath = _configuration["Storage:ProjectsPath"] ?? "Projects";
+        var projectFolder = Path.Combine(projectsPath, $"project_{project.Id}");
+        var imagesFolder = Path.Combine(projectFolder, "images");
+        
+        Directory.CreateDirectory(imagesFolder);
+        
+        // Extract ZIP to images folder
+        ZipFile.ExtractToDirectory(zipFilePath, imagesFolder);
         
         return project;
     }

@@ -1,8 +1,10 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotogrammetryAPI", "PhotogrammetryAPI\PhotogrammetryAPI.csproj", "{F042D739-1B76-FA79-D645-6C522AA66A18}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotogrammetryWorker", "PhotogrammetryWorker\PhotogrammetryWorker.csproj", "{78E57DD3-C8AF-4C2E-BEEE-B7198B5AC44D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -14,6 +16,10 @@ Global
 		{F042D739-1B76-FA79-D645-6C522AA66A18}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F042D739-1B76-FA79-D645-6C522AA66A18}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F042D739-1B76-FA79-D645-6C522AA66A18}.Release|Any CPU.Build.0 = Release|Any CPU
+		{78E57DD3-C8AF-4C2E-BEEE-B7198B5AC44D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{78E57DD3-C8AF-4C2E-BEEE-B7198B5AC44D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{78E57DD3-C8AF-4C2E-BEEE-B7198B5AC44D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{78E57DD3-C8AF-4C2E-BEEE-B7198B5AC44D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
