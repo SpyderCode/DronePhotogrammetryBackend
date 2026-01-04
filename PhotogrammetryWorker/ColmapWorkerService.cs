@@ -5,20 +5,23 @@ using System.Text.Json;
 using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace PhotogrammetryWorker;
 
 public class ColmapWorkerService : BackgroundService
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<ColmapWorkerService> _logger;
     private IConnection? _connection;
     private IModel? _channel;
     private readonly string _queueName = "photogrammetry-queue";
     private readonly string _statusQueueName = "photogrammetry-status";
     
-    public ColmapWorkerService(IConfiguration configuration)
+    public ColmapWorkerService(IConfiguration configuration, ILogger<ColmapWorkerService> logger)
     {
         _configuration = configuration;
+        _logger = logger;
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -83,12 +86,12 @@ public class ColmapWorkerService : BackgroundService
                 arguments: null
             );
             
-            Console.WriteLine("[INFO] Worker connected to RabbitMQ");
-            Console.WriteLine($"       Queue: {_queueName}");
-            Console.WriteLine($"       Status Queue: {_statusQueueName}");
-            Console.WriteLine($"       Dead Letter Queue: {deadLetterQueue}");
-            Console.WriteLine("       Waiting for projects...");
-            Console.WriteLine();
+            _logger.LogInformation("Worker connected to RabbitMQ");
+            _logger.LogInformation("Queue: {QueueName}", _queueName);
+            _logger.LogInformation("Status Queue: {StatusQueueName}", _statusQueueName);
+            _logger.LogInformation("Dead Letter Queue: {DeadLetterQueue}", deadLetterQueue);
+            _logger.LogInformation("Waiting for projects...");
+
             
             var consumer = new EventingBasicConsumer(_channel);
             consumer.Received += async (model, ea) =>
@@ -111,12 +114,12 @@ public class ColmapWorkerService : BackgroundService
                         if (_channel != null && _channel.IsOpen)
                         {
                             _channel.BasicAck(deliveryTag: deliveryTag, multiple: false);
-                            Console.WriteLine($"[INFO] Project {projectId} acknowledged");
+                            _logger.LogInformation("Project {ProjectId} acknowledged", projectId);
                         }
                     }
                     else
                     {
-                        Console.WriteLine("[WARN] Invalid message format - rejecting");
+                        _logger.LogWarning("Invalid message format - rejecting");
                         if (_channel != null && _channel.IsOpen)
                         {
                             _channel.BasicReject(deliveryTag: deliveryTag, requeue: false);
@@ -125,8 +128,7 @@ public class ColmapWorkerService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ERROR] Error processing project {projectId}: {ex.Message}");
-                    Console.WriteLine($"        Stack trace: {ex.StackTrace}");
+                    _logger.LogError(ex, "Error processing project {ProjectId}", projectId);
                     
                     try
                     {
@@ -137,19 +139,19 @@ public class ColmapWorkerService : BackgroundService
                             
                             if (shouldRequeue)
                             {
-                                Console.WriteLine($"        [INFO] Requeuing project {projectId} for retry");
+                                _logger.LogInformation("Requeuing project {ProjectId} for retry", projectId);
                                 _channel.BasicNack(deliveryTag: deliveryTag, multiple: false, requeue: true);
                             }
                             else
                             {
-                                Console.WriteLine($"        [ERROR] Rejecting project {projectId} (fatal error)");
+                                _logger.LogError("Rejecting project {ProjectId} (fatal error)", projectId);
                                 _channel.BasicReject(deliveryTag: deliveryTag, requeue: false);
                             }
                         }
                     }
                     catch (Exception nackEx)
                     {
-                        Console.WriteLine($"[ERROR] Failed to nack/reject message: {nackEx.Message}");
+                        _logger.LogError(nackEx, "Failed to nack/reject message");
                     }
                 }
             };
@@ -160,7 +162,7 @@ public class ColmapWorkerService : BackgroundService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Worker error: {ex.Message}");
+            _logger.LogError(ex, "Worker error");
             throw;
         }
     }
@@ -213,7 +215,7 @@ public class ColmapWorkerService : BackgroundService
         {
             if (_channel == null || !_channel.IsOpen)
             {
-                Console.WriteLine("[WARN] Cannot publish status update - channel closed");
+                _logger.LogWarning("Cannot publish status update - channel closed");
                 return;
             }
             
@@ -240,18 +242,17 @@ public class ColmapWorkerService : BackgroundService
                 body: body
             );
             
-            Console.WriteLine($"[INFO] Status update published: Project {projectId} -> {status}");
+            _logger.LogInformation("Status update published: Project {ProjectId} -> {Status}", projectId, status);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WARN] Failed to publish status update: {ex.Message}");
+            _logger.LogWarning(ex, "Failed to publish status update");
         }
     }
     
     private async Task ProcessProjectAsync(int projectId)
     {
-        Console.WriteLine($"[INFO] Processing Project {projectId}");
-        Console.WriteLine($"       Started at: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        _logger.LogInformation("Processing Project {ProjectId} started at {StartTime}", projectId, DateTime.Now);
         
         // Send "Processing" status update
         PublishStatusUpdate(projectId, "Processing");
@@ -261,7 +262,7 @@ public class ColmapWorkerService : BackgroundService
         
         if (!Directory.Exists(projectPath))
         {
-            Console.WriteLine($"[ERROR] Project directory not found: {projectPath}");
+            _logger.LogError("Project directory not found: {ProjectPath}", projectPath);
             PublishStatusUpdate(projectId, "Failed", $"Project directory not found: {projectPath}");
             return;
         }
@@ -278,6 +279,14 @@ public class ColmapWorkerService : BackgroundService
             Directory.CreateDirectory(flatImagesDir);
             
             FlattenImageDirectory(imagesDir, flatImagesDir);
+            
+            // Count images
+            var imageFiles = Directory.GetFiles(flatImagesDir, "*.*", SearchOption.AllDirectories)
+                .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            _logger.LogInformation("Project {ProjectId}: Total images = {ImageCount}", projectId, imageFiles.Length);
             
             var sparseDir = Path.Combine(outputDir, "sparse");
             var denseDir = Path.Combine(outputDir, "dense");
@@ -298,27 +307,27 @@ public class ColmapWorkerService : BackgroundService
             var maxReprojError = _configuration["Colmap:DenseReconstruction:FusionMaxReprojError"] ?? "2.0";
             var maxDepthError = _configuration["Colmap:DenseReconstruction:FusionMaxDepthError"] ?? "0.005";
             
-            Console.WriteLine("       Step 1/7: Feature extraction (high quality)...");
+            _logger.LogInformation("Step 1/7: Feature extraction (high quality)...");
             await RunColmapCommand(colmapPath,
                 $"feature_extractor --database_path \"{databasePath}\" --image_path \"{flatImagesDir}\" " +
                 $"--ImageReader.single_camera 0 --SiftExtraction.max_num_features {maxFeatures} " +
                 $"--SiftExtraction.first_octave {firstOctave}");
             
-            Console.WriteLine("       Step 2/7: Feature matching (high quality)...");
+            _logger.LogInformation("Step 2/7: Feature matching (high quality)...");
             await RunColmapCommand(colmapPath,
                 $"exhaustive_matcher --database_path \"{databasePath}\" " +
                 $"--SiftMatching.max_distance {matchDistance} --SiftMatching.max_ratio {matchRatio}");
             
-            Console.WriteLine("       Step 3/7: Sparse reconstruction...");
+            _logger.LogInformation("Step 3/7: Sparse reconstruction...");
             await RunColmapCommand(colmapPath,
                 $"mapper --database_path \"{databasePath}\" --image_path \"{flatImagesDir}\" --output_path \"{sparseDir}\"");
             
-            Console.WriteLine("       Step 4/7: Image undistortion...");
+            _logger.LogInformation("Step 4/7: Image undistortion...");
             await RunColmapCommand(colmapPath,
                 $"image_undistorter --image_path \"{flatImagesDir}\" --input_path \"{Path.Combine(sparseDir, "0")}\" " +
                 $"--output_path \"{denseDir}\" --max_image_size {maxImageSize}");
             
-            Console.WriteLine("       Step 5/7: Dense stereo matching (GPU - high quality)...");
+            _logger.LogInformation("Step 5/7: Dense stereo matching (GPU - high quality)...");
             await RunColmapCommand(colmapPath,
                 $"patch_match_stereo --workspace_path \"{denseDir}\" " +
                 $"--PatchMatchStereo.max_image_size {maxImageSize} " +
@@ -326,14 +335,14 @@ public class ColmapWorkerService : BackgroundService
                 $"--PatchMatchStereo.window_step {windowStep} " +
                 $"--PatchMatchStereo.geom_consistency true");
             
-            Console.WriteLine("       Step 6/7: Stereo fusion (high quality)...");
+            _logger.LogInformation("Step 6/7: Stereo fusion (high quality)...");
             await RunColmapCommand(colmapPath,
                 $"stereo_fusion --workspace_path \"{denseDir}\" --output_path \"{Path.Combine(denseDir, "fused.ply")}\" " +
                 $"--StereoFusion.min_num_pixels {minNumPixels} " +
                 $"--StereoFusion.max_reproj_error {maxReprojError} " +
                 $"--StereoFusion.max_depth_error {maxDepthError}");
             
-            Console.WriteLine("       Step 7/7: Delaunay meshing...");
+            _logger.LogInformation("Step 7/7: Delaunay meshing...");
             var meshPath = Path.Combine(denseDir, "meshed-delaunay.ply");
             await RunColmapCommand(colmapPath,
                 $"delaunay_mesher --input_path \"{denseDir}\" --input_type dense --output_path \"{meshPath}\"");
@@ -342,14 +351,12 @@ public class ColmapWorkerService : BackgroundService
             var relativeMeshPath = Path.GetRelativePath(projectsPath, meshPath);
             PublishStatusUpdate(projectId, "Completed", null, relativeMeshPath);
             
-            Console.WriteLine($"[INFO] Project {projectId} completed successfully");
-            Console.WriteLine($"       Output: {meshPath}");
-            Console.WriteLine($"       Finished at: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            Console.WriteLine();
+            _logger.LogInformation("Project {ProjectId} completed successfully. Output: {MeshPath}. Finished at: {FinishedTime}", 
+                projectId, meshPath, DateTime.Now);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Project {projectId} failed: {ex.Message}");
+            _logger.LogError(ex, "Project {ProjectId} failed", projectId);
             
             // Send "Failed" status update
             PublishStatusUpdate(projectId, "Failed", ex.Message);
@@ -392,7 +399,7 @@ public class ColmapWorkerService : BackgroundService
         process.OutputDataReceived += (sender, args) => 
         {
             if (!string.IsNullOrEmpty(args.Data))
-                Console.WriteLine($"      {args.Data}");
+                _logger.LogDebug("COLMAP: {Output}", args.Data);
         };
         
         process.ErrorDataReceived += (sender, args) => 
@@ -403,14 +410,18 @@ public class ColmapWorkerService : BackgroundService
                     args.Data.Contains("ERROR") || args.Data.Contains("WARNING") || args.Data.Contains("error:") ||
                     args.Data.Contains("Error:"))
                 {
-                    Console.WriteLine($"      [WARN] {args.Data}");
+                    _logger.LogWarning("COLMAP: {Output}", args.Data);
                 }
                 else if (args.Data.Contains("Elapsed time:") || args.Data.Contains("Writing output:") || 
                          args.Data.Contains("Number of") || args.Data.Contains("Processing"))
                 {
                     var startIndex = args.Data.IndexOf(']');
                     if (startIndex >= 0 && startIndex < args.Data.Length - 1)
-                        Console.WriteLine($"      {args.Data.Substring(startIndex + 1).Trim()}");
+                        _logger.LogInformation("COLMAP: {Output}", args.Data.Substring(startIndex + 1).Trim());
+                }
+                else
+                {
+                    _logger.LogDebug("COLMAP: {Output}", args.Data);
                 }
             }
         };

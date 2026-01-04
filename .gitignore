@@ -21,6 +21,8 @@ images/
 *.obj
 *.bin
 *.txt.user
+*.bkp
+*bkp
 
 # OS files
 .DS_Store
@@ -35,6 +37,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Temporary files
 tmp/

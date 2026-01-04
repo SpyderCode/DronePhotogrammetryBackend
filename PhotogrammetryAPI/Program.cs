@@ -4,8 +4,32 @@ using Microsoft.IdentityModel.Tokens;
 using PhotogrammetryAPI.Data;
 using PhotogrammetryAPI.Services;
 using System.Text;
+using Serilog;
+using Serilog.Events;
 
-var builder = WebApplication.CreateBuilder(args);
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File(
+        path: "logs/api-.log",
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 7,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .CreateLogger();
+
+try
+{
+    Log.Information("Starting Photogrammetry API...");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Use Serilog
+    builder.Host.UseSerilog();
 
 // Configure Kestrel for large file uploads
 builder.WebHost.ConfigureKestrel(options =>
@@ -96,4 +120,15 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+Log.Information("Photogrammetry API started successfully");
+
 app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
