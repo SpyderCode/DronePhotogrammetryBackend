@@ -271,7 +271,13 @@ public class ColmapWorkerService : BackgroundService
         {
             var imagesDir = Path.Combine(projectPath, "images");
             var outputDir = Path.Combine(projectPath, "output");
-            var databasePath = Path.Combine(projectPath, "database.db");
+            
+            // Use local cache for database to avoid network share locking issues
+            var localCachePath = _configuration["Storage:LocalCachePath"] ?? "/tmp/colmap_cache";
+            var localProjectCache = Path.Combine(localCachePath, $"project_{projectId}");
+            Directory.CreateDirectory(localProjectCache);
+            var databasePath = Path.Combine(localProjectCache, "database.db");
+            
             var flatImagesDir = Path.Combine(projectPath, "flat_images");
             
             if (Directory.Exists(flatImagesDir))
@@ -353,10 +359,24 @@ public class ColmapWorkerService : BackgroundService
             
             _logger.LogInformation("Project {ProjectId} completed successfully. Output: {MeshPath}. Finished at: {FinishedTime}", 
                 projectId, meshPath, DateTime.Now);
+            
+            // Cleanup local cache
+            if (Directory.Exists(localProjectCache))
+            {
+                Directory.Delete(localProjectCache, true);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Project {ProjectId} failed", projectId);
+            
+            // Cleanup local cache on failure too
+            var localCachePath = _configuration["Storage:LocalCachePath"] ?? "/tmp/colmap_cache";
+            var localProjectCache = Path.Combine(localCachePath, $"project_{projectId}");
+            if (Directory.Exists(localProjectCache))
+            {
+                Directory.Delete(localProjectCache, true);
+            }
             
             // Send "Failed" status update
             PublishStatusUpdate(projectId, "Failed", ex.Message);
