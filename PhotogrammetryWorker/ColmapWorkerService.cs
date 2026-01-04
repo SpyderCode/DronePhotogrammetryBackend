@@ -286,13 +286,28 @@ public class ColmapWorkerService : BackgroundService
             
             var colmapPath = _configuration["Colmap:ExecutablePath"] ?? "colmap";
             
-            Console.WriteLine("       Step 1/7: Feature extraction...");
-            await RunColmapCommand(colmapPath,
-                $"feature_extractor --database_path \"{databasePath}\" --image_path \"{flatImagesDir}\"");
+            // Get quality settings from configuration
+            var maxFeatures = _configuration["Colmap:FeatureExtraction:SiftMaxNumFeatures"] ?? "16384";
+            var firstOctave = _configuration["Colmap:FeatureExtraction:SiftFirstOctave"] ?? "-1";
+            var matchDistance = _configuration["Colmap:FeatureMatching:SiftMatchingMaxDistance"] ?? "0.7";
+            var matchRatio = _configuration["Colmap:FeatureMatching:SiftMatchingMaxRatio"] ?? "0.8";
+            var maxImageSize = _configuration["Colmap:DenseReconstruction:StereoMaxImageSize"] ?? "3200";
+            var windowRadius = _configuration["Colmap:DenseReconstruction:StereoWindowRadius"] ?? "5";
+            var windowStep = _configuration["Colmap:DenseReconstruction:StereoWindowStep"] ?? "1";
+            var minNumPixels = _configuration["Colmap:DenseReconstruction:FusionMinNumPixels"] ?? "3";
+            var maxReprojError = _configuration["Colmap:DenseReconstruction:FusionMaxReprojError"] ?? "2.0";
+            var maxDepthError = _configuration["Colmap:DenseReconstruction:FusionMaxDepthError"] ?? "0.005";
             
-            Console.WriteLine("       Step 2/7: Feature matching...");
+            Console.WriteLine("       Step 1/7: Feature extraction (high quality)...");
             await RunColmapCommand(colmapPath,
-                $"exhaustive_matcher --database_path \"{databasePath}\"");
+                $"feature_extractor --database_path \"{databasePath}\" --image_path \"{flatImagesDir}\" " +
+                $"--ImageReader.single_camera 0 --SiftExtraction.max_num_features {maxFeatures} " +
+                $"--SiftExtraction.first_octave {firstOctave}");
+            
+            Console.WriteLine("       Step 2/7: Feature matching (high quality)...");
+            await RunColmapCommand(colmapPath,
+                $"exhaustive_matcher --database_path \"{databasePath}\" " +
+                $"--SiftMatching.max_distance {matchDistance} --SiftMatching.max_ratio {matchRatio}");
             
             Console.WriteLine("       Step 3/7: Sparse reconstruction...");
             await RunColmapCommand(colmapPath,
@@ -300,20 +315,28 @@ public class ColmapWorkerService : BackgroundService
             
             Console.WriteLine("       Step 4/7: Image undistortion...");
             await RunColmapCommand(colmapPath,
-                $"image_undistorter --image_path \"{flatImagesDir}\" --input_path \"{Path.Combine(sparseDir, "0")}\" --output_path \"{denseDir}\"");
+                $"image_undistorter --image_path \"{flatImagesDir}\" --input_path \"{Path.Combine(sparseDir, "0")}\" " +
+                $"--output_path \"{denseDir}\" --max_image_size {maxImageSize}");
             
-            Console.WriteLine("       Step 5/7: Dense stereo matching (GPU)...");
+            Console.WriteLine("       Step 5/7: Dense stereo matching (GPU - high quality)...");
             await RunColmapCommand(colmapPath,
-                $"patch_match_stereo --workspace_path \"{denseDir}\"");
+                $"patch_match_stereo --workspace_path \"{denseDir}\" " +
+                $"--PatchMatchStereo.max_image_size {maxImageSize} " +
+                $"--PatchMatchStereo.window_radius {windowRadius} " +
+                $"--PatchMatchStereo.window_step {windowStep} " +
+                $"--PatchMatchStereo.geom_consistency true");
             
-            Console.WriteLine("       Step 6/7: Stereo fusion...");
+            Console.WriteLine("       Step 6/7: Stereo fusion (high quality)...");
             await RunColmapCommand(colmapPath,
-                $"stereo_fusion --workspace_path \"{denseDir}\" --output_path \"{Path.Combine(denseDir, "fused.ply")}\"");
+                $"stereo_fusion --workspace_path \"{denseDir}\" --output_path \"{Path.Combine(denseDir, "fused.ply")}\" " +
+                $"--StereoFusion.min_num_pixels {minNumPixels} " +
+                $"--StereoFusion.max_reproj_error {maxReprojError} " +
+                $"--StereoFusion.max_depth_error {maxDepthError}");
             
-            Console.WriteLine("       Step 7/7: Poisson meshing...");
-            var meshPath = Path.Combine(denseDir, "meshed-poisson.ply");
+            Console.WriteLine("       Step 7/7: Delaunay meshing...");
+            var meshPath = Path.Combine(denseDir, "meshed-delaunay.ply");
             await RunColmapCommand(colmapPath,
-                $"poisson_mesher --input_path \"{Path.Combine(denseDir, "fused.ply")}\" --output_path \"{meshPath}\"");
+                $"delaunay_mesher --input_path \"{denseDir}\" --input_type dense --output_path \"{meshPath}\"");
             
             // Send "Completed" status update with output path
             var relativeMeshPath = Path.GetRelativePath(projectsPath, meshPath);
