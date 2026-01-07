@@ -17,17 +17,20 @@ public class ProjectsController : ControllerBase
     private readonly IFileStorageService _fileStorageService;
     private readonly IQueueService _queueService;
     private readonly ApplicationDbContext _context;
+    private readonly IConfiguration _configuration;
     
     public ProjectsController(
         IProjectService projectService, 
         IFileStorageService fileStorageService,
         IQueueService queueService,
-        ApplicationDbContext context)
+        ApplicationDbContext context,
+        IConfiguration configuration)
     {
         _projectService = projectService;
         _fileStorageService = fileStorageService;
         _queueService = queueService;
         _context = context;
+        _configuration = configuration;
     }
     
     private int GetUserId()
@@ -97,16 +100,26 @@ public class ProjectsController : ControllerBase
         if (project.Status != ProcessingStatus.Finished)
             return BadRequest(new { message = "Project processing is not complete" });
         
-        if (string.IsNullOrEmpty(project.OutputModelPath) || !System.IO.File.Exists(project.OutputModelPath))
-            return NotFound(new { message = "Model file not found" });
+        if (string.IsNullOrEmpty(project.OutputModelPath))
+            return NotFound(new { message = "Model file path not set" });
         
-        var memory = new MemoryStream();
-        using (var stream = new FileStream(project.OutputModelPath, FileMode.Open))
-        {
-            await stream.CopyToAsync(memory);
-        }
-        memory.Position = 0;
+        // Get configured Projects path
+        var projectsBasePath = _configuration["Storage:ProjectsPath"] ?? "../Projects";
+        projectsBasePath = Path.GetFullPath(projectsBasePath);
         
-        return File(memory, "application/octet-stream", Path.GetFileName(project.OutputModelPath));
+        // Remove any leading path separators from relative paths
+        var relativePath = project.OutputModelPath.TrimStart('/', '\\');
+        
+        var fullPath = Path.IsPathRooted(project.OutputModelPath) 
+            ? project.OutputModelPath 
+            : Path.Combine(projectsBasePath, relativePath);
+        
+        if (!System.IO.File.Exists(fullPath))
+            return NotFound(new { message = $"Model file not found at: {fullPath}" });
+        
+        var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var fileName = Path.GetFileName(fullPath);
+        
+        return File(fileStream, "application/octet-stream", fileName);
     }
 }

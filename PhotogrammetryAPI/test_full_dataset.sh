@@ -103,14 +103,26 @@ for i in $(seq 1 $MAX_CHECKS); do
         # Download
         echo ""
         echo "4️⃣ Downloading model..."
-        curl -s -X GET "$BASE_URL/api/projects/$PROJECT_ID/download" \
+        HTTP_CODE=$(curl -s -w "%{http_code}" -X GET "$BASE_URL/api/projects/$PROJECT_ID/download" \
           -H "Authorization: Bearer $TOKEN" \
-          --output "model_full_$PROJECT_ID.ply"
+          --output "model_full_$PROJECT_ID.ply")
         
-        if [ -f "model_full_$PROJECT_ID.ply" ]; then
+        if [ "$HTTP_CODE" = "200" ] && [ -f "model_full_$PROJECT_ID.ply" ]; then
             SIZE=$(stat -c%s "model_full_$PROJECT_ID.ply" 2>/dev/null || stat -f%z "model_full_$PROJECT_ID.ply" 2>/dev/null)
             SIZE_MB=$((SIZE / 1024 / 1024))
-            echo "✅ Model downloaded: model_full_$PROJECT_ID.ply (${SIZE_MB}MB)"
+            if [ "$SIZE" -gt 0 ]; then
+                echo "✅ Model downloaded: model_full_$PROJECT_ID.ply (${SIZE_MB}MB)"
+            else
+                echo "❌ Download failed: File is empty"
+                cat "model_full_$PROJECT_ID.ply"
+                exit 1
+            fi
+        else
+            echo "❌ Download failed with HTTP code: $HTTP_CODE"
+            if [ -f "model_full_$PROJECT_ID.ply" ]; then
+                cat "model_full_$PROJECT_ID.ply"
+            fi
+            exit 1
         fi
         
         echo ""

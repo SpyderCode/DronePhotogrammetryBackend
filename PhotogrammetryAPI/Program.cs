@@ -72,6 +72,7 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 builder.Services.AddSingleton<IQueueService, RabbitMQService>();
+builder.Services.AddHttpClient<IRabbitMQStatsService, RabbitMQStatsService>();
 
 // Add Background Services
 builder.Services.AddHostedService<StatusConsumerService>();
