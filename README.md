@@ -26,6 +26,7 @@ User → API Server (Upload/Status) → Shared Storage → RabbitMQ → Worker N
 
 - **PhotogrammetryAPI**: REST API for uploads, authentication, and status queries (no GPU required)
 - **PhotogrammetryWorker**: Background processor that runs COLMAP on GPU-enabled machines
+- **PhotogrammetryStatus**: Real-time monitoring dashboard for workers and projects
 - **Shared Storage**: Common filesystem (`Projects/` folder) for images and models
 - **RabbitMQ**: Message queue for work distribution and status updates
 - **MySQL**: Database for users, projects, and metadata

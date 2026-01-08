@@ -59,6 +59,16 @@ public class ProjectsController : ControllerBase
         
         await _queueService.PublishProjectAsync(project.Id);
         
+        // Send InQueue status to status dashboard
+        await _queueService.PublishStatusAsync(new
+        {
+            ProjectId = project.Id,
+            Status = "InQueue",
+            Timestamp = DateTime.UtcNow,
+            Message = "Project queued for processing",
+            ImageCount = 0
+        });
+        
         return Ok(new
         {
             projectId = project.Id,

@@ -8,6 +8,7 @@ namespace PhotogrammetryAPI.Services;
 public interface IQueueService
 {
     Task PublishProjectAsync(int projectId);
+    Task PublishStatusAsync(object statusMessage);
 }
 
 public class RabbitMQService : IQueueService, IDisposable
@@ -15,6 +16,7 @@ public class RabbitMQService : IQueueService, IDisposable
     private readonly IConnection _connection;
     private readonly IModel _channel;
     private readonly string _queueName = "photogrammetry-queue";
+    private readonly string _statusQueue = "photogrammetry-status-verbose";
     
     public RabbitMQService(IConfiguration configuration)
     {
@@ -58,6 +60,15 @@ public class RabbitMQService : IQueueService, IDisposable
             autoDelete: false,
             arguments: args
         );
+        
+        // Status queue for verbose updates
+        _channel.QueueDeclare(
+            queue: _statusQueue,
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null
+        );
     }
     
     public Task PublishProjectAsync(int projectId)
@@ -71,6 +82,24 @@ public class RabbitMQService : IQueueService, IDisposable
         _channel.BasicPublish(
             exchange: "",
             routingKey: _queueName,
+            basicProperties: properties,
+            body: body
+        );
+        
+        return Task.CompletedTask;
+    }
+    
+    public Task PublishStatusAsync(object statusMessage)
+    {
+        var message = JsonSerializer.Serialize(statusMessage);
+        var body = Encoding.UTF8.GetBytes(message);
+        
+        var properties = _channel.CreateBasicProperties();
+        properties.Persistent = false; // Status messages don't need persistence
+        
+        _channel.BasicPublish(
+            exchange: "",
+            routingKey: _statusQueue,
             basicProperties: properties,
             body: body
         );

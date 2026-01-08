@@ -17,11 +17,14 @@ public class ColmapWorkerService : BackgroundService
     private IModel? _channel;
     private readonly string _queueName = "photogrammetry-queue";
     private readonly string _statusQueueName = "photogrammetry-status";
+    private readonly string _verboseStatusQueueName = "photogrammetry-status-verbose";
+    private readonly string _workerId;
     
     public ColmapWorkerService(IConfiguration configuration, ILogger<ColmapWorkerService> logger)
     {
         _configuration = configuration;
         _logger = logger;
+        _workerId = $"worker-{Environment.MachineName}-{Guid.NewGuid().ToString()[..8]}";
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -250,12 +253,50 @@ public class ColmapWorkerService : BackgroundService
         }
     }
     
+    private void PublishVerboseStatus(int projectId, string status, string? currentStep = null, string? message = null, int? imageCount = null)
+    {
+        try
+        {
+            if (_channel == null || !_channel.IsOpen) return;
+            
+            var verboseUpdate = new
+            {
+                ProjectId = projectId,
+                Status = status,
+                WorkerId = _workerId,
+                CurrentStep = currentStep,
+                Message = message,
+                ImageCount = imageCount,
+                Timestamp = DateTime.UtcNow
+            };
+            
+            var json = JsonSerializer.Serialize(verboseUpdate);
+            var body = Encoding.UTF8.GetBytes(json);
+            
+            var properties = _channel.CreateBasicProperties();
+            properties.Persistent = false;
+            properties.ContentType = "application/json";
+            
+            _channel.BasicPublish(
+                exchange: "",
+                routingKey: _verboseStatusQueueName,
+                basicProperties: properties,
+                body: body
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish verbose status (non-critical)");
+        }
+    }
+    
     private async Task ProcessProjectAsync(int projectId)
     {
         _logger.LogInformation("Processing Project {ProjectId} started at {StartTime}", projectId, DateTime.Now);
         
         // Send "Processing" status update
         PublishStatusUpdate(projectId, "Processing");
+        PublishVerboseStatus(projectId, "Processing", "Starting", $"Worker {_workerId} started processing");
         
         var projectsPath = _configuration["Storage:ProjectsPath"] ?? "Projects";
         var projectPath = Path.Combine(projectsPath, $"project_{projectId}");
@@ -264,6 +305,7 @@ public class ColmapWorkerService : BackgroundService
         {
             _logger.LogError("Project directory not found: {ProjectPath}", projectPath);
             PublishStatusUpdate(projectId, "Failed", $"Project directory not found: {projectPath}");
+            PublishVerboseStatus(projectId, "Failed", message: $"Project directory not found: {projectPath}");
             return;
         }
         
@@ -284,6 +326,7 @@ public class ColmapWorkerService : BackgroundService
                 Directory.Delete(flatImagesDir, true);
             Directory.CreateDirectory(flatImagesDir);
             
+            PublishVerboseStatus(projectId, "Processing", "Preparing images", "Flattening image directory structure");
             FlattenImageDirectory(imagesDir, flatImagesDir);
             
             // Count images
@@ -293,6 +336,7 @@ public class ColmapWorkerService : BackgroundService
                            f.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
             _logger.LogInformation("Project {ProjectId}: Total images = {ImageCount}", projectId, imageFiles.Length);
+            PublishVerboseStatus(projectId, "Processing", "Images counted", $"Found {imageFiles.Length} images", imageFiles.Length);
             
             var sparseDir = Path.Combine(outputDir, "sparse");
             var denseDir = Path.Combine(outputDir, "dense");
@@ -314,26 +358,31 @@ public class ColmapWorkerService : BackgroundService
             var maxDepthError = _configuration["Colmap:DenseReconstruction:FusionMaxDepthError"] ?? "0.005";
             
             _logger.LogInformation("Step 1/7: Feature extraction (high quality)...");
+            PublishVerboseStatus(projectId, "Processing", "Step 1/7: Feature extraction", "Extracting SIFT features from images", imageFiles.Length);
             await RunColmapCommand(colmapPath,
                 $"feature_extractor --database_path \"{databasePath}\" --image_path \"{flatImagesDir}\" " +
                 $"--ImageReader.single_camera 0 --SiftExtraction.max_num_features {maxFeatures} " +
                 $"--SiftExtraction.first_octave {firstOctave}");
             
             _logger.LogInformation("Step 2/7: Feature matching (high quality)...");
+            PublishVerboseStatus(projectId, "Processing", "Step 2/7: Feature matching", "Matching features between images", imageFiles.Length);
             await RunColmapCommand(colmapPath,
                 $"exhaustive_matcher --database_path \"{databasePath}\" " +
                 $"--SiftMatching.max_distance {matchDistance} --SiftMatching.max_ratio {matchRatio}");
             
             _logger.LogInformation("Step 3/7: Sparse reconstruction...");
+            PublishVerboseStatus(projectId, "Processing", "Step 3/7: Sparse reconstruction", "Building sparse 3D point cloud", imageFiles.Length);
             await RunColmapCommand(colmapPath,
                 $"mapper --database_path \"{databasePath}\" --image_path \"{flatImagesDir}\" --output_path \"{sparseDir}\"");
             
             _logger.LogInformation("Step 4/7: Image undistortion...");
+            PublishVerboseStatus(projectId, "Processing", "Step 4/7: Image undistortion", "Undistorting images for dense reconstruction", imageFiles.Length);
             await RunColmapCommand(colmapPath,
                 $"image_undistorter --image_path \"{flatImagesDir}\" --input_path \"{Path.Combine(sparseDir, "0")}\" " +
                 $"--output_path \"{denseDir}\" --max_image_size {maxImageSize}");
             
             _logger.LogInformation("Step 5/7: Dense stereo matching (GPU - high quality)...");
+            PublishVerboseStatus(projectId, "Processing", "Step 5/7: Dense stereo matching", "Computing depth maps (GPU accelerated)", imageFiles.Length);
             await RunColmapCommand(colmapPath,
                 $"patch_match_stereo --workspace_path \"{denseDir}\" " +
                 $"--PatchMatchStereo.max_image_size {maxImageSize} " +
@@ -342,6 +391,7 @@ public class ColmapWorkerService : BackgroundService
                 $"--PatchMatchStereo.geom_consistency true");
             
             _logger.LogInformation("Step 6/7: Stereo fusion (high quality)...");
+            PublishVerboseStatus(projectId, "Processing", "Step 6/7: Stereo fusion", "Fusing depth maps into dense point cloud", imageFiles.Length);
             await RunColmapCommand(colmapPath,
                 $"stereo_fusion --workspace_path \"{denseDir}\" --output_path \"{Path.Combine(denseDir, "fused.ply")}\" " +
                 $"--StereoFusion.min_num_pixels {minNumPixels} " +
@@ -349,6 +399,7 @@ public class ColmapWorkerService : BackgroundService
                 $"--StereoFusion.max_depth_error {maxDepthError}");
             
             _logger.LogInformation("Step 7/7: Delaunay meshing...");
+            PublishVerboseStatus(projectId, "Processing", "Step 7/7: Delaunay meshing", "Creating triangulated mesh from point cloud", imageFiles.Length);
             var meshPath = Path.Combine(denseDir, "meshed-delaunay.ply");
             await RunColmapCommand(colmapPath,
                 $"delaunay_mesher --input_path \"{denseDir}\" --input_type dense --output_path \"{meshPath}\"");
@@ -356,6 +407,7 @@ public class ColmapWorkerService : BackgroundService
             // Send "Completed" status update with output path
             var relativeMeshPath = Path.GetRelativePath(projectsPath, meshPath);
             PublishStatusUpdate(projectId, "Completed", null, relativeMeshPath);
+            PublishVerboseStatus(projectId, "Completed", "Finished", $"Mesh generated successfully: {meshPath}", imageFiles.Length);
             
             _logger.LogInformation("Project {ProjectId} completed successfully. Output: {MeshPath}. Finished at: {FinishedTime}", 
                 projectId, meshPath, DateTime.Now);
@@ -369,6 +421,7 @@ public class ColmapWorkerService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Project {ProjectId} failed", projectId);
+            PublishVerboseStatus(projectId, "Failed", "Error", ex.Message);
             
             // Cleanup local cache on failure too
             var localCachePath = _configuration["Storage:LocalCachePath"] ?? "/tmp/colmap_cache";
