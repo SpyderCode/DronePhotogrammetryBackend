@@ -176,6 +176,9 @@ public class ColmapWorkerService : BackgroundService
                         if (!_isProcessing)
                         {
                             PublishVerboseStatus(0, "Idle", null, "Worker waiting for projects");
+                        } else if (_isProcessing)
+                        {
+                            PublishVerboseStatus(0, "Processing", null, "Worker is processing a project");
                         }
                     }
                     catch (OperationCanceledException)
