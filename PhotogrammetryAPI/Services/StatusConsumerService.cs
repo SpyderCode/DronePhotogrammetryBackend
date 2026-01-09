@@ -11,14 +11,16 @@ namespace PhotogrammetryAPI.Services;
 public class StatusConsumerService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<StatusConsumerService> _logger;
     private readonly IConfiguration _configuration;
     private IConnection? _connection;
     private IModel? _channel;
     private readonly string _statusQueueName = "photogrammetry-status";
     
-    public StatusConsumerService(IServiceProvider serviceProvider, IConfiguration configuration)
+    public StatusConsumerService(IServiceProvider serviceProvider, IConfiguration configuration, ILogger<StatusConsumerService> logger)
     {
         _serviceProvider = serviceProvider;
+        _logger = logger;
         _configuration = configuration;
     }
     
@@ -49,9 +51,9 @@ public class StatusConsumerService : BackgroundService
             
             _channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
             
-            Console.WriteLine("✅ Status Consumer connected to RabbitMQ");
-            Console.WriteLine($"   Listening on: {_statusQueueName}");
-            Console.WriteLine();
+            _logger.LogInformation("Status Consumer connected to RabbitMQ");
+            _logger.LogInformation($"Listening on: {_statusQueueName}");
+            _logger.LogInformation("");
             
             var consumer = new AsyncEventingBasicConsumer(_channel);
             consumer.Received += async (model, ea) =>
@@ -70,13 +72,13 @@ public class StatusConsumerService : BackgroundService
                     }
                     else
                     {
-                        Console.WriteLine("⚠️  Invalid status update message");
+                        _logger.LogWarning("Invalid status update message");
                         _channel.BasicReject(deliveryTag: deliveryTag, requeue: false);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Error processing status update: {ex.Message}");
+                    _logger.LogError($"Error processing status update: {ex.Message}");
                     _channel.BasicNack(deliveryTag: deliveryTag, multiple: false, requeue: true);
                 }
             };
@@ -87,7 +89,7 @@ public class StatusConsumerService : BackgroundService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Status consumer error: {ex.Message}");
+            _logger.LogError($"Status consumer error: {ex.Message}");
             throw;
         }
     }
@@ -101,7 +103,7 @@ public class StatusConsumerService : BackgroundService
         
         if (project == null)
         {
-            Console.WriteLine($"⚠️  Project {statusUpdate.ProjectId} not found in database");
+            _logger.LogWarning($"Project {statusUpdate.ProjectId} not found in database");
             return;
         }
         
@@ -112,7 +114,7 @@ public class StatusConsumerService : BackgroundService
             case "Processing":
                 project.Status = ProcessingStatus.Processing;
                 project.ProcessingStartedAt = DateTime.UtcNow;
-                Console.WriteLine($"📊 Project {project.Id}: {oldStatus} → Processing");
+                _logger.LogInformation($"Project {project.Id}: {oldStatus} → Processing");
                 break;
                 
             case "Completed":
@@ -122,19 +124,19 @@ public class StatusConsumerService : BackgroundService
                 {
                     project.OutputModelPath = statusUpdate.OutputModelPath;
                 }
-                Console.WriteLine($"📊 Project {project.Id}: {oldStatus} → Finished");
-                Console.WriteLine($"   Output: {project.OutputModelPath}");
+                _logger.LogInformation($"Project {project.Id}: {oldStatus} → Finished");
+                _logger.LogInformation($"Output: {project.OutputModelPath}");
                 break;
                 
             case "Failed":
                 project.Status = ProcessingStatus.Failed;
                 project.ErrorMessage = statusUpdate.ErrorMessage;
-                Console.WriteLine($"📊 Project {project.Id}: {oldStatus} → Failed");
-                Console.WriteLine($"   Error: {statusUpdate.ErrorMessage}");
+                _logger.LogInformation($"Project {project.Id}: {oldStatus} → Failed");
+                _logger.LogInformation($"Error: {statusUpdate.ErrorMessage}");
                 break;
                 
             default:
-                Console.WriteLine($"⚠️  Unknown status: {statusUpdate.Status}");
+                _logger.LogWarning($"Unknown status: {statusUpdate.Status}");
                 return;
         }
         

@@ -357,6 +357,14 @@ public class ColmapWorkerService : BackgroundService
             var maxReprojError = _configuration["Colmap:DenseReconstruction:FusionMaxReprojError"] ?? "2.0";
             var maxDepthError = _configuration["Colmap:DenseReconstruction:FusionMaxDepthError"] ?? "0.005";
             
+            // Log COLMAP Quality Configuration
+            _logger.LogInformation("=== COLMAP Quality Configuration ===");
+            _logger.LogInformation("Feature Extraction: SiftMaxNumFeatures={MaxFeatures}, SiftFirstOctave={FirstOctave}", maxFeatures, firstOctave);
+            _logger.LogInformation("Feature Matching: MaxDistance={MatchDistance}, MaxRatio={MatchRatio}", matchDistance, matchRatio);
+            _logger.LogInformation("Dense Reconstruction: StereoMaxImageSize={MaxImageSize}, WindowRadius={WindowRadius}, WindowStep={WindowStep}", maxImageSize, windowRadius, windowStep);
+            _logger.LogInformation("Fusion Parameters: MinNumPixels={MinNumPixels}, MaxReprojError={MaxReprojError}, MaxDepthError={MaxDepthError}", minNumPixels, maxReprojError, maxDepthError);
+            _logger.LogInformation("====================================");
+            
             _logger.LogInformation("Step 1/7: Feature extraction (high quality)...");
             PublishVerboseStatus(projectId, "Processing", "Step 1/7: Feature extraction", "Extracting SIFT features from images", imageFiles.Length);
             await RunColmapCommand(colmapPath,
