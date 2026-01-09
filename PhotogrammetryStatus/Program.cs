@@ -223,6 +223,17 @@ class Program
         {
             _workers.Remove(staleWorker.Key);
         }
+
+        //Clean up workers that are "Idle" if there are more projects than workers
+        var idleWorkers = _workers.Where(w => w.Value.Status == "Idle").ToList();
+        var activeProjectCount = _projects.Count(p => p.Value.Status == "InQueue");
+        if (idleWorkers.Count > 0 && activeProjectCount < _workers.Count)
+        {
+            foreach (var idleWorker in idleWorkers)
+            {
+                _workers.Remove(idleWorker.Key);
+            }
+        }
         
         // Also clean up workers that are "Processing" but haven't updated in 2 minutes (likely crashed)
         var stuckWorkers = _workers.Where(w => 
