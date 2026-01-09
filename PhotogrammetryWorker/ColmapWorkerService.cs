@@ -19,12 +19,13 @@ public class ColmapWorkerService : BackgroundService
     private readonly string _statusQueueName = "photogrammetry-status";
     private readonly string _verboseStatusQueueName = "photogrammetry-status-verbose";
     private readonly string _workerId;
+    private bool _isProcessing = false;
     
     public ColmapWorkerService(IConfiguration configuration, ILogger<ColmapWorkerService> logger)
     {
         _configuration = configuration;
         _logger = logger;
-        _workerId = $"worker-{Environment.MachineName}-{Guid.NewGuid().ToString()[..8]}";
+        _workerId = $"worker-{Environment.MachineName}";
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -161,6 +162,29 @@ public class ColmapWorkerService : BackgroundService
             
             _channel.BasicConsume(queue: _queueName, autoAck: false, consumer: consumer);
             
+            // Send initial idle status
+            PublishVerboseStatus(0, "Idle", null, "Worker started and waiting for projects");
+            
+            // Start heartbeat task
+            var heartbeatTask = Task.Run(async () =>
+            {
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(30000, stoppingToken); // Every 30 seconds
+                        if (!_isProcessing)
+                        {
+                            PublishVerboseStatus(0, "Idle", null, "Worker waiting for projects");
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }, stoppingToken);
+            
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
         catch (Exception ex)
@@ -292,14 +316,17 @@ public class ColmapWorkerService : BackgroundService
     
     private async Task ProcessProjectAsync(int projectId)
     {
-        _logger.LogInformation("Processing Project {ProjectId} started at {StartTime}", projectId, DateTime.Now);
-        
-        // Send "Processing" status update
-        PublishStatusUpdate(projectId, "Processing");
-        PublishVerboseStatus(projectId, "Processing", "Starting", $"Worker {_workerId} started processing");
-        
-        var projectsPath = _configuration["Storage:ProjectsPath"] ?? "Projects";
-        var projectPath = Path.Combine(projectsPath, $"project_{projectId}");
+        _isProcessing = true;
+        try
+        {
+            _logger.LogInformation("Processing Project {ProjectId} started at {StartTime}", projectId, DateTime.Now);
+            
+            // Send "Processing" status update
+            PublishStatusUpdate(projectId, "Processing");
+            PublishVerboseStatus(projectId, "Processing", "Starting", $"Worker {_workerId} started processing");
+            
+            var projectsPath = _configuration["Storage:ProjectsPath"] ?? "Projects";
+            var projectPath = Path.Combine(projectsPath, $"project_{projectId}");
         
         if (!Directory.Exists(projectPath))
         {
@@ -309,10 +336,8 @@ public class ColmapWorkerService : BackgroundService
             return;
         }
         
-        try
-        {
-            var imagesDir = Path.Combine(projectPath, "images");
-            var outputDir = Path.Combine(projectPath, "output");
+        var imagesDir = Path.Combine(projectPath, "images");
+        var outputDir = Path.Combine(projectPath, "output");
             
             // Use local cache for database to avoid network share locking issues
             var localCachePath = _configuration["Storage:LocalCachePath"] ?? "/tmp/colmap_cache";
@@ -443,6 +468,10 @@ public class ColmapWorkerService : BackgroundService
             PublishStatusUpdate(projectId, "Failed", ex.Message);
             
             throw;
+        }
+        finally
+        {
+            _isProcessing = false;
         }
     }
     

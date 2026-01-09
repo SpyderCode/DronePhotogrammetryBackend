@@ -136,16 +136,22 @@ class Program
                     worker.ProcessingStarted ??= msg.Timestamp;
                     worker.ImageCount = msg.ImageCount ?? 0;
                 }
-                else if (msg.Status == "Completed" || msg.Status == "Failed")
+                else if (msg.Status == "Completed" || msg.Status == "Failed" || msg.Status == "Idle")
                 {
                     worker.CurrentProjectId = null;
                     worker.ProcessingStarted = null;
                     worker.Status = "Idle";
                     worker.CurrentStep = "";
+                    worker.ImageCount = 0;
                 }
             }
 
-            // Update project status
+            // Update project status (skip project ID 0 which is used for idle heartbeats)
+            if (msg.ProjectId == 0)
+            {
+                return;
+            }
+            
             if (!_projects.ContainsKey(msg.ProjectId))
             {
                 _projects[msg.ProjectId] = new ProjectInfo
@@ -157,14 +163,29 @@ class Program
             }
 
             var project = _projects[msg.ProjectId];
+            var oldStatus = project.Status;
             project.Status = msg.Status;
-            project.WorkerId = msg.WorkerId;
+            
+            // When project changes worker, update the assignment
+            if (!string.IsNullOrEmpty(msg.WorkerId))
+            {
+                project.WorkerId = msg.WorkerId;
+            }
+            
             project.CurrentStep = msg.CurrentStep;
             project.ImageCount = msg.ImageCount ?? project.ImageCount;
 
-            if (msg.Status == "Processing" && !project.ProcessingStarted.HasValue)
+            if (msg.Status == "Processing")
             {
-                project.ProcessingStarted = msg.Timestamp;
+                // Reset processing start if this is a new attempt (e.g., after failure)
+                if (oldStatus == "Failed" || oldStatus == "InQueue")
+                {
+                    project.ProcessingStarted = msg.Timestamp;
+                }
+                else if (!project.ProcessingStarted.HasValue)
+                {
+                    project.ProcessingStarted = msg.Timestamp;
+                }
             }
             else if (msg.Status == "Completed" || msg.Status == "Failed")
             {
@@ -196,6 +217,22 @@ class Program
 
     static void RenderDashboard()
     {
+        // Clean up stale workers (no update in 5 minutes)
+        var staleWorkers = _workers.Where(w => (DateTime.UtcNow - w.Value.LastUpdate.ToUniversalTime()).TotalMinutes > 5).ToList();
+        foreach (var staleWorker in staleWorkers)
+        {
+            _workers.Remove(staleWorker.Key);
+        }
+        
+        // Also clean up workers that are "Processing" but haven't updated in 2 minutes (likely crashed)
+        var stuckWorkers = _workers.Where(w => 
+            w.Value.Status == "Processing" && 
+            (DateTime.UtcNow - w.Value.LastUpdate.ToUniversalTime()).TotalMinutes > 2).ToList();
+        foreach (var stuckWorker in stuckWorkers)
+        {
+            _workers.Remove(stuckWorker.Key);
+        }
+
         AnsiConsole.Clear();
         ShowHeader();
 
@@ -258,6 +295,7 @@ class Program
             .AddColumn(new TableColumn("[bold]Queued At[/]").Centered());
 
         var recentProjects = _projects.Values
+            .Where(p => p.ProjectId > 0) // Skip idle heartbeat entries
             .OrderByDescending(p => p.QueuedAt ?? DateTime.MinValue)
             .Take(15);
 
