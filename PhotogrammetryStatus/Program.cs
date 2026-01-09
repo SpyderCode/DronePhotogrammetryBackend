@@ -132,6 +132,16 @@ class Program
 
                 if (msg.Status == "Processing")
                 {
+                    // Clear this project from any other workers that might be stuck on it
+                    foreach (var otherWorker in _workers.Values.Where(w => w.WorkerId != msg.WorkerId && w.CurrentProjectId == msg.ProjectId))
+                    {
+                        otherWorker.CurrentProjectId = null;
+                        otherWorker.ProcessingStarted = null;
+                        otherWorker.Status = "Idle";
+                        otherWorker.CurrentStep = "";
+                        otherWorker.ImageCount = 0;
+                    }
+                    
                     worker.CurrentProjectId = msg.ProjectId;
                     worker.ProcessingStarted ??= msg.Timestamp;
                     worker.ImageCount = msg.ImageCount ?? 0;
